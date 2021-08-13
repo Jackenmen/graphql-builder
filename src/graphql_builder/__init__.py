@@ -17,6 +17,12 @@ from ._internal.fields import (
     GraphQLNestableField,
     GraphQLNestableField as NestableField,
 )
+from ._internal.template import (
+    GraphQLEnum,
+    GraphQLEnum as Enum,
+    GraphQLTemplate,
+    GraphQLTemplate as Template,
+)
 
 __version__ = "1.0.0a0"
 
@@ -38,4 +44,9 @@ __all__ = (
     "FieldBase",
     "GraphQLNestableField",
     "NestableField",
+    # template
+    "GraphQLEnum",
+    "Enum",
+    "GraphQLTemplate",
+    "Template",
 )

@@ -1,19 +1,9 @@
 from abc import ABC, ABCMeta, abstractmethod
-from typing import (
-    Any,
-    ChainMap,
-    ClassVar,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Type,
-    Union,
-    overload,
-)
+from typing import Any, ClassVar, Dict, Iterator, List, Optional, Type, Union, overload
 
 from .enums import GraphQLOperationType
 from .fields import GraphQLField, GraphQLFieldBase, GraphQLNestableField
+from .template import GraphQLChainMap, GraphQLTemplate
 from .typings import FieldBuilderT, NestableFieldBuilderT
 from .utils import minify_graphql_call
 
@@ -26,6 +16,7 @@ __all__ = (
 
 class _GraphQLFieldBuilderBase(ABC):
     TEMPLATE: ClassVar[str]
+    _TEMPLATE_OBJ: ClassVar[GraphQLTemplate]
 
     def __init__(self) -> None:
         if not hasattr(self.__class__, "TEMPLATE"):
@@ -34,9 +25,12 @@ class _GraphQLFieldBuilderBase(ABC):
     def __init_subclass__(cls) -> None:
         if hasattr(cls, "TEMPLATE"):
             cls.TEMPLATE = minify_graphql_call(cls.TEMPLATE)
+            template_obj = GraphQLTemplate(cls.TEMPLATE)
+            template_obj.check_string_placeholders()
+            cls._TEMPLATE_OBJ = template_obj
 
     @abstractmethod
-    def iter_calls(self, parent_substitutions: ChainMap[str, Any]) -> Iterator[str]:
+    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
         ...
 
 
@@ -118,7 +112,7 @@ class GraphQLOperationBuilder(_GraphQLNestableBuilder):
 
     def iter_calls(self) -> Iterator[str]:
         parts = [f"{self.OPERATION_TYPE.value} {{"]
-        substitutions: ChainMap[str, Any] = ChainMap()
+        substitutions = GraphQLChainMap()
         substitutions.maps = []
         for field in self._fields.values():
             parts.extend(field.iter_calls(substitutions))
@@ -135,14 +129,14 @@ class GraphQLNestableFieldBuilder(
         super().__init__()
         self.substitutions = substitutions
 
-    def iter_calls(self, parent_substitutions: ChainMap[str, Any]) -> Iterator[str]:
+    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
         substitutions = parent_substitutions.new_child(self.substitutions)
         template_substitutions = substitutions.new_child()
         parts: List[str] = []
         for field in self._fields.values():
             parts.extend(field.iter_calls(substitutions))
         template_substitutions["nested_call"] = "\n".join(parts)
-        yield self.TEMPLATE % template_substitutions
+        yield self._TEMPLATE_OBJ.substitute(template_substitutions)
 
 
 class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuilderMeta):
@@ -153,7 +147,7 @@ class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuild
     def _append(self, substitutions: Dict[str, Any]) -> None:
         self.field_substitutions.append(substitutions)
 
-    def iter_calls(self, parent_substitutions: ChainMap[str, Any]) -> Iterator[str]:
+    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
         substitutions = parent_substitutions.new_child()
         for substitutions.maps[0] in self.field_substitutions:
-            yield self.TEMPLATE % substitutions
+            yield self._TEMPLATE_OBJ.substitute(substitutions)
