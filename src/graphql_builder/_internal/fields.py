@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, Iterator, List, Optional, Type, TypeVar
 
+from .build_state import GraphQLBuildState
 from .template import GraphQLChainMap
 from .typings import FieldBuilderT, NestableFieldBuilderT
 
@@ -22,7 +23,9 @@ class GraphQLFieldBase(Generic[_T], ABC):
         ...
 
     @abstractmethod
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
         ...
 
 
@@ -39,9 +42,11 @@ class GraphQLNestableField(GraphQLFieldBase[NestableFieldBuilderT]):
         self.builders.append(builder)
         return builder
 
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
         for builder in self.builders:
-            yield from builder.iter_calls(parent_substitutions)
+            yield from builder.iter_calls(build_state, parent_substitutions)
 
 
 class GraphQLField(GraphQLFieldBase[FieldBuilderT]):
@@ -55,5 +60,7 @@ class GraphQLField(GraphQLFieldBase[FieldBuilderT]):
     def append(self, **kwargs: Any) -> None:
         self.builder._append(kwargs)
 
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
-        yield from self.builder.iter_calls(parent_substitutions)
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
+        yield from self.builder.iter_calls(build_state, parent_substitutions)

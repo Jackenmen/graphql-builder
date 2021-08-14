@@ -1,6 +1,7 @@
 from abc import ABC, ABCMeta, abstractmethod
 from typing import Any, ClassVar, Dict, Iterator, List, Optional, Type, Union, overload
 
+from .build_state import GraphQLBuildState
 from .enums import GraphQLOperationType
 from .fields import GraphQLField, GraphQLFieldBase, GraphQLNestableField
 from .template import GraphQLChainMap, GraphQLTemplate
@@ -17,6 +18,7 @@ __all__ = (
 class _GraphQLFieldBuilderBase(ABC):
     TEMPLATE: ClassVar[str]
     _TEMPLATE_OBJ: ClassVar[GraphQLTemplate]
+    COST: ClassVar[int] = 1
 
     def __init__(self) -> None:
         if not hasattr(self.__class__, "TEMPLATE"):
@@ -30,7 +32,9 @@ class _GraphQLFieldBuilderBase(ABC):
             cls._TEMPLATE_OBJ = template_obj
 
     @abstractmethod
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
         ...
 
 
@@ -102,22 +106,45 @@ class _GraphQLFieldBuilderMeta(ABCMeta):
 
 class GraphQLOperationBuilder(_GraphQLNestableBuilder):
     OPERATION_TYPE: ClassVar[GraphQLOperationType]
+    MAX_COST: ClassVar[Optional[int]]
 
     def __init__(self) -> None:
         if not hasattr(self.__class__, "OPERATION_TYPE"):
             raise RuntimeError(
                 "The class does not have an OPERATION_TYPE attribute set."
             )
+        if not hasattr(self.__class__, "MAX_COST"):
+            raise RuntimeError("The class does not have an MAX_COST attribute set.")
         super().__init__()
 
+    def _get_call_from_parts(self, parts: List[str]) -> str:
+        joined_parts = "\n".join(parts)
+        parts.clear()
+        return f"{self.OPERATION_TYPE.value} {{\n{joined_parts}\n}}"
+
     def iter_calls(self) -> Iterator[str]:
-        parts = [f"{self.OPERATION_TYPE.value} {{"]
+        build_state = GraphQLBuildState(self)
         substitutions = GraphQLChainMap()
         substitutions.maps = []
+        parts = []
+
         for field in self._fields.values():
-            parts.extend(field.iter_calls(substitutions))
-        parts.append("}")
-        yield "\n".join(parts)
+            for call in field.iter_calls(build_state, substitutions):
+                if call is not None:
+                    parts.append(call)
+                    continue
+
+                if not parts:
+                    raise ValueError(
+                        "The cost of a single partial call in"
+                        f" {field.__class__.__name__} exceeds max cost set for"
+                        f" {self.__class__.__name__}."
+                    )
+
+                yield self._get_call_from_parts(parts)
+
+        if parts:
+            yield self._get_call_from_parts(parts)
 
 
 class GraphQLNestableFieldBuilder(
@@ -129,14 +156,40 @@ class GraphQLNestableFieldBuilder(
         super().__init__()
         self.substitutions = substitutions
 
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
+    def _get_call_from_parts(
+        self, parts: List[str], template_substitutions: GraphQLChainMap
+    ) -> str:
+        template_substitutions["nested_call"] = "\n".join(parts)
+        parts.clear()
+        return self._TEMPLATE_OBJ.substitute(template_substitutions)
+
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
         substitutions = parent_substitutions.new_child(self.substitutions)
         template_substitutions = substitutions.new_child()
         parts: List[str] = []
+
         for field in self._fields.values():
-            parts.extend(field.iter_calls(substitutions))
-        template_substitutions["nested_call"] = "\n".join(parts)
-        yield self._TEMPLATE_OBJ.substitute(template_substitutions)
+            for call in field.iter_calls(build_state, substitutions):
+                if call is not None:
+                    if not parts and build_state.should_end_call(self.COST):
+                        yield None
+                    parts.append(call)
+                    continue
+
+                if not parts:
+                    raise ValueError(
+                        "The cost of a single partial call in"
+                        f" {field.__class__.__name__} exceeds max cost set for"
+                        f" {build_state.operation_builder.__class__.__name__}."
+                    )
+
+                yield self._get_call_from_parts(parts, template_substitutions)
+                yield None
+
+        if parts:
+            yield self._get_call_from_parts(parts, template_substitutions)
 
 
 class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuilderMeta):
@@ -147,7 +200,11 @@ class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuild
     def _append(self, substitutions: Dict[str, Any]) -> None:
         self.field_substitutions.append(substitutions)
 
-    def iter_calls(self, parent_substitutions: GraphQLChainMap) -> Iterator[str]:
+    def iter_calls(
+        self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
+    ) -> Iterator[Optional[str]]:
         substitutions = parent_substitutions.new_child()
         for substitutions.maps[0] in self.field_substitutions:
+            if build_state.should_end_call(self.COST):
+                yield None
             yield self._TEMPLATE_OBJ.substitute(substitutions)
