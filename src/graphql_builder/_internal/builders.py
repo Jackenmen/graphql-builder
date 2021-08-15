@@ -170,13 +170,13 @@ class GraphQLNestableFieldBuilder(
         template_substitutions = substitutions.new_child()
         parts: List[str] = []
         is_first_yield = True
+        if build_state.should_end_call(self.COST):
+            is_first_yield = False
+            yield None
 
         for field in self._fields.values():
             for call in field.iter_calls(build_state, substitutions):
                 if call is not None:
-                    if not parts and build_state.should_end_call(self.COST):
-                        is_first_yield = False
-                        yield None
                     parts.append(call)
                     continue
 
@@ -192,9 +192,17 @@ class GraphQLNestableFieldBuilder(
                 is_first_yield = False
                 yield self._get_call_from_parts(parts, template_substitutions)
                 yield None
+                if build_state.should_end_call(self.COST):
+                    raise ValueError(
+                        "The cost of a single partial call in"
+                        f" {field.__class__.__name__} exceeds max cost set for"
+                        f" {build_state.operation_builder.__class__.__name__}."
+                    )
 
         if parts:
             yield self._get_call_from_parts(parts, template_substitutions)
+        else:
+            build_state.current_cost -= self.COST
 
 
 class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuilderMeta):
