@@ -167,6 +167,7 @@ class GraphQLNestableFieldBuilder(
         self, build_state: GraphQLBuildState, parent_substitutions: GraphQLChainMap
     ) -> Iterator[Optional[str]]:
         substitutions = parent_substitutions.new_child(self.substitutions)
+        substitutions["unique_id"] = build_state.get_unique_id()
         template_substitutions = substitutions.new_child()
         parts: List[str] = []
         is_first_yield = True
@@ -220,4 +221,5 @@ class GraphQLFieldBuilder(_GraphQLFieldBuilderBase, metaclass=_GraphQLFieldBuild
         for substitutions.maps[0] in self.field_substitutions:
             if build_state.should_end_call(self.COST):
                 yield None
+            substitutions["unique_id"] = build_state.get_unique_id()
             yield self._TEMPLATE_OBJ.substitute(substitutions)

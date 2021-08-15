@@ -15,14 +15,16 @@ class GraphQLEnum:
 
 
 class GraphQLChainMap(ChainMap[str, Any]):
+    LITERAL_ONLY_KEYS = ("nested_call", "unique_id")
+
     def __getitem__(self, key: str) -> Any:
         key, _, value_format = key.partition(":")
         value = super().__getitem__(key)
         if value_format:
-            if key == "nested_call" and value_format != "literal":
-                raise ValueError("'nested_call' can only used the 'literal' format.")
+            if key in self.LITERAL_ONLY_KEYS and value_format != "literal":
+                raise ValueError(f"{key!r} can only use the 'literal' format.")
         else:
-            value_format = "literal" if key == "nested_call" else "gql"
+            value_format = "literal" if key in self.LITERAL_ONLY_KEYS else "gql"
 
         if value_format == "gql":
             return simplejson.dumps(
