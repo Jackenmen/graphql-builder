@@ -32,11 +32,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "black==21.7b0",
-    "flake8==3.9.2",
-    "isort==5.9.3",
-    "mypy==0.910",
-    "types-simplejson==0.1.5",
+    "black==22.3.0",
+    "flake8==4.0.1",
+    "isort==5.10.1",
+    "mypy==0.961",
+    "types-simplejson==3.17.6",
 ]
 
 [tool.black]
