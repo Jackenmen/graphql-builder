@@ -18,7 +18,7 @@ classifiers = [
     "Topic :: Utilities",
     "Typing :: Typed",
 ]
-requires-python = ">=3.8,<3.10"
+requires-python = ">=3.8"
 dynamic = ["description", "version"]
 dependencies = [
     "simplejson~=3.10",
